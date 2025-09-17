@@ -1,0 +1,24 @@
+fastapi>=0.110.0
+uvicorn>=0.29.0
+pydantic>=2.5.0
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-redis>=0.1.0
+ollama>=0.3.0
+python-dotenv>=1.0.0
+langchain-core
+langchain-community
+langchain-ollama
+unstructured
+markdown
+tqdm
+redis==5.0.1
+langgraph
+
+# For DPO Training
+datasets
+transformers
+trl
+torch
+accelerate
+bitsandbytes
