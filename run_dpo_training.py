@@ -2,13 +2,13 @@ import os
 import logging
 import redis
 import argparse
+import json # JSON 파싱을 위해 추가
 from dotenv import load_dotenv
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 from trl import DPOTrainer
 
 # --- 초기 설정 ---
-# .env 파일이 스크립트와 동일한 디렉토리에 있으므로 경로를 수정합니다.
 load_dotenv(dotenv_path='.env')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -22,7 +22,6 @@ DPO_KEY_PREFIX = "dpo:preference:"
 def fetch_dpo_data_from_redis() -> Dataset:
     """
     Redis에서 'dpo:preference:*' 패턴의 모든 키를 읽어와 Hugging Face Dataset으로 변환합니다.
-    하나의 'chosen'과 여러 개의 'rejected' 항목이 있을 경우, 여러 개의 데이터 포인트로 확장합니다.
     """
     logger.info(f"Connecting to Redis at {REDIS_URL}...")
     if not REDIS_URL:
@@ -42,13 +41,19 @@ def fetch_dpo_data_from_redis() -> Dataset:
     
     for key in keys:
         try:
-            pref_data = r.json().get(key)
+            # ⭐️ 변경점: JSON 문자열을 파싱하여 사용
+            json_str = r.get(key)
+            if not json_str:
+                logger.warning(f"No data found for key: {key}")
+                continue
             
-            if isinstance(pref_data, dict) and "prompt" in pref_data and "chosen" in pref_data and "rejected" in pref_data:
+            pref_data = json.loads(json_str)
+            
+            # 필수 키 존재 여부 확인
+            if "prompt" in pref_data and "chosen" in pref_data and "rejected" in pref_data:
                 prompt = pref_data["prompt"]
                 chosen = pref_data["chosen"]
                 
-                # 각 rejected 항목에 대해 별도의 데이터 포인트를 생성합니다.
                 if isinstance(pref_data["rejected"], list):
                     for rejected_item in pref_data["rejected"]:
                         if rejected_item: # 비어있지 않은 경우에만 추가
@@ -56,7 +61,7 @@ def fetch_dpo_data_from_redis() -> Dataset:
                             data["chosen"].append(chosen)
                             data["rejected"].append(rejected_item)
             else:
-                logger.warning(f"Skipping malformed data at key: {key}")
+                logger.warning(f"Skipping malformed data at key: {key} (missing required fields)")
 
         except Exception as e:
             logger.error(f"Failed to process key {key}: {e}")
@@ -64,6 +69,7 @@ def fetch_dpo_data_from_redis() -> Dataset:
     logger.info(f"Successfully fetched and processed {len(keys)} records into {len(data['prompt'])} training examples.")
     return Dataset.from_dict(data)
 
+# ... (main 함수와 argparse 부분은 기존과 동일) ...
 def main(args):
     """
     DPO 학습 파이프라인 메인 함수
